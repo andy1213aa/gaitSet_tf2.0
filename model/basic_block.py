@@ -1,3 +1,6 @@
+from tensorflow.keras import Model
+from tensorflow.keras.layers import Dense, Flatten, Conv2D
+from tensorflow import keras
 from multiprocessing import pool
 import tensorflow as tf
 from tensorflow.keras import layers
@@ -7,7 +10,8 @@ class BasicConv2D(layers.Layer):
     def __init__(self, filter_number, kernel_size, strides, **kwargs):
         super(BasicConv2D, self).__init__()
 
-        self.conv2D = layers.Conv2D(filter_number, kernel_size, strides, bias= False, **kwargs)
+        self.conv2D = layers.Conv2D(
+            filter_number, kernel_size, strides, use_bias=False, **kwargs)
         self.leaky_ReLU = layers.LeakyReLU()
 
     def call(self, input):
@@ -35,44 +39,15 @@ class SetBlock(layers.Layer):
         c: channel
         '''
 
-        n, s, h, w, c = input.shape
-        x = input.reshape((-1, h, w, c))
-        x = self.foward_block(x)
+        # n, s, h, w, c = input.shape
+        # x = tf.reshape(input, (-1, h, w, c))
+        # x = input.reshape((-1, h, w, c))
+        x = self.foward_block(input)
         if self.pooling:
             x = self.pool2D(x)
-        _, h, w, c = x.shape()
-        return x.reshape(n, s, h, w, c)
+        # _, h, w, c = x.shape
+        return x
+        # return tf.reshape(x, (-1, s, h, w, c))
 
-
-import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras.layers import Dense, Flatten, Conv2D
-from tensorflow.keras import Model
-
-mnist = keras.datasets.mnist
-
-(x_train, y_train), (x_test, y_test) = mnist.load_data()
-x_train, x_test = x_train / 255.0, x_test / 255.0
-
-x_train = x_train[..., tf.newaxis]
-x_test = x_test[..., tf.newaxis]
-
-train_ds = tf.data.Dataset.from_tensor_slices(
-    (x_train, y_train)).shuffle(10000).batch(32)
-test_ds = tf.data.Dataset.from_tensor_slices((x_test, y_test)).batch(32)
-
-class MyModel(Model):
-    def __init__(self):
-        super(MyModel, self).__init__()
-        self.conv1 = Conv2D(32, 3, activation='relu')
-        self.flatten = Flatten()
-        self.d1 = Dense(128, activation='relu')
-        self.d2 = Dense(10, activation='softmax')
-
-    def call(self, x):
-        x = self.conv1(x)
-        x = self.flatten(x)
-        x = self.d1(x)
-        return self.d2(x)
 
 

@@ -80,3 +80,32 @@ OU_MVLP_multi_view_train = {
         "shuffle": True
     }
 }
+
+OU_MVLP_GaitSet = {
+
+    "feature": {
+        "imgs": tf.string,
+        "subject": tf.string,
+        "angles": tf.string
+
+    },
+
+    "resolution": {
+        "height": 64,
+        "width": 64,
+        "channel": 1,
+        "k": 16,
+        "angle_nums": 14,
+    },
+
+    "training_info": {
+        "tfrecord_path": '/media/aaron/新增磁碟區/ITRI_SSTC/S100/gait/tf_record/gaitset_10k_64x64_16p.tfrecords',
+        "data_num": 1000,
+        "batch_size": 8,
+        "shuffle": True
+    },
+
+    'save_model': {
+        'logdir': '/home/aaron/Desktop/Aaron/S100/College-level_Applied_Research/gait_log/gaitset'
+    }
+}

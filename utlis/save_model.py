@@ -74,27 +74,6 @@ class Save_Model(tf.keras.callbacks.Callback):
             for model_name, model in self.models.items():
                 model.save(self.modelDir[model_name] + "trained_ckpt")
 
-    # def save_config(self, monitor_value):
-    #     saveLogTxt = f"""
-    # Parameter Setting
-    # =======================================================
-    # DataSet: { self.dataSetConfig['dataSet']}
-    # DataShape: ({ self.dataSetConfig['length']}, { self.dataSetConfig['width']}, {self.dataSetConfig['height']})
-    # DataSize: {self.dataSetConfig['datasize']}
-    # TrainingSize: { self.dataSetConfig['trainSize']}
-    # TestingSize: { self.dataSetConfig['testSize']}
-    # BatchSize: { self.dataSetConfig['batchSize']}
-    # =======================================================
-    # Training log
-    # =======================================================
-    # Training start: { self.dataSetConfig['startingTime']}
-    # Training stop: {datetime.datetime.now()}
-    # Training epoch: {self.epoch}
-    # Root Mean Square Error: {monitor_value}%
-    # =======================================================
-    # """
-    #     with open(self.dataSetConfig['logDir']+'config.txt', 'w') as f:
-    #         f.write(saveLogTxt)
 
     def on_epoch_end(self, monitor_value=0, logs=None):
         # read monitor value from logs

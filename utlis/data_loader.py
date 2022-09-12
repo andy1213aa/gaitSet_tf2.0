@@ -73,7 +73,7 @@ class OU_MVLP_multi_view(GenericTFLoader):
 
         angle1_onehot = features['angle1_onehot']
         angle2_onehot = features['angle2_onehot']
-        
+
         # subject = features['subject']
 
         img1 = tf.io.decode_raw(img1, np.float32)
@@ -98,9 +98,68 @@ class OU_MVLP_multi_view(GenericTFLoader):
                             self._config['resolution']['width'], self._config['resolution']['angle_nums']))
         angle2 = tf.reshape(angle2, (self._config['resolution']['height'],
                             self._config['resolution']['width'], self._config['resolution']['angle_nums']))
-        
-        angle1_onehot = tf.reshape(angle1_onehot, (self._config['resolution']['angle_nums'],))
-        angle2_onehot = tf.reshape(angle2_onehot, (self._config['resolution']['angle_nums'],))
+
+        angle1_onehot = tf.reshape(
+            angle1_onehot, (self._config['resolution']['angle_nums'],))
+        angle2_onehot = tf.reshape(
+            angle2_onehot, (self._config['resolution']['angle_nums'],))
         # subject = tf.reshape(subject, (1,))
 
         return [img1, img2, angle1, angle2, angle1_onehot, angle2_onehot]
+
+
+class OU_MVLP_GaitSet(GenericTFLoader):
+
+    def __init__(self, config):
+        self._config = config
+        self.strategy = tf.distribute.MirroredStrategy(
+            devices=["GPU:0", "GPU:1"], cross_device_ops=tf.distribute.HierarchicalCopyAllReduce())
+
+    def read(self):
+
+        # per replica batch size
+        BATCH_SIZE = self._config['training_info']['batch_size']
+
+        # initialize tf.distribute.MirroredStrategy
+
+        GLOBAL_BATCH_SIZE = self.strategy.num_replicas_in_sync * BATCH_SIZE
+
+        print(f'Number of devices: {self.strategy.num_replicas_in_sync}')
+
+        AUTOTUNE = tf.data.experimental.AUTOTUNE
+        data_set = tf.data.TFRecordDataset(
+            self._config['training_info']['tfrecord_path'])
+
+        data_set = data_set.map(self.parse, num_parallel_calls=AUTOTUNE)
+        data_set = data_set.cache()
+        data_set = data_set.shuffle(
+            10000, reshuffle_each_iteration=self._config['training_info']['shuffle'])
+        data_batch = data_set.batch(
+            GLOBAL_BATCH_SIZE, drop_remainder=True)
+        data_batch = data_batch.prefetch(buffer_size=AUTOTUNE)
+        data_batch_ds = self.strategy.experimental_distribute_dataset(
+            data_batch)
+
+        return data_batch_ds
+
+    def parse(self, example_proto):
+
+        features = tf.io.parse_single_example(
+            example_proto,
+            features={key: tf.io.FixedLenFeature(
+                [], self._config['feature'][key]) for key in self._config['feature']}
+
+        )
+
+        imgs = features['imgs']
+        subject = features['subject']
+        angles = features['angles']
+
+        imgs = tf.io.decode_raw(imgs, tf.float32)
+        imgs = tf.reshape(imgs,  (self._config['resolution']['k'], self._config['resolution']
+                          ['height'], self._config['resolution']['width'], self._config['resolution']['channel']))
+        imgs = imgs/255.
+        subject = tf.io.decode_raw(subject, tf.float32)
+        subject = tf.reshape(subject, (self._config['resolution']['k'],))
+
+        return [imgs, subject]
