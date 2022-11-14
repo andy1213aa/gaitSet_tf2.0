@@ -4,7 +4,7 @@ from tensorflow import keras
 from multiprocessing import pool
 import tensorflow as tf
 from tensorflow.keras import layers
-
+from einops import rearrange, reduce, repeat
 
 class BasicConv2D(layers.Layer):
     def __init__(self, filter_number, kernel_size, strides, **kwargs):
@@ -30,7 +30,7 @@ class SetBlock(layers.Layer):
         if pooling:
             self.pool2D = layers.MaxPooling2D()
 
-    def call(self, input):
+    def call(self, x):
         '''
         n: number of ppl
         s: frame of each gait
@@ -39,15 +39,40 @@ class SetBlock(layers.Layer):
         c: channel
         '''
 
-        # n, s, h, w, c = input.shape
-        # x = tf.reshape(input, (-1, h, w, c))
-        # x = input.reshape((-1, h, w, c))
-        x = self.foward_block(input)
+        n, s, h, w, c = tf.shape(x)[0], tf.shape(x)[1], tf.shape(x)[2], tf.shape(x)[3], tf.shape(x)[4]
+        x = rearrange(x, 'n s h w c -> (n s) h w c')
+        # x = tf.reshape(x, (-1, h, w, c))
+ 
+        x = self.foward_block(x)
         if self.pooling:
             x = self.pool2D(x)
-        # _, h, w, c = x.shape
-        return x
-        # return tf.reshape(x, (-1, s, h, w, c))
+        
+        _, h, w, c =  tf.shape(x)[0], tf.shape(x)[1], tf.shape(x)[2], tf.shape(x)[3]
+
+        # return x
+        return rearrange(x, '(n s) h w c -> n s h w c', s= 16)
 
 
+class HPM(layers.Layer):
+    def __init__(self, in_dim, out_dim, bin_level_num=5): 
+        super(HPM, self).__init__()
+        self.bin_num = [2**i for i in range(bin_level_num)]
+        self.fc_bin = tf.Variable(tf.keras.initializers.GlorotUniform()(
+            (sum(self.bin_num), in_dim, out_dim)
+        ), trainable=True)
 
+    def call(self, x):
+        feature = list()
+        n, h, w, c = tf.shape(x)[0], tf.shape(x)[1], tf.shape(x)[2], tf.shape(x)[3]
+
+        for num_bin in self.bin_num:
+            z = tf.reshape(x, (n, num_bin, -1, c))
+            z = tf.reduce_mean(z, axis = [2]) +  tf.reduce_max(z, axis = [2])
+            feature.append(z)
+        
+        feature = tf.concat(feature, axis = 1)
+        feature = tf.transpose(feature, perm=[1,0,2])
+        feature = tf.matmul(feature, self.fc_bin) 
+        
+        return tf.transpose(feature, perm=[1, 0, 2])
+        

@@ -1,7 +1,7 @@
 
 import numpy as np
 import tensorflow as tf
-
+from einops import rearrange, reduce, repeat
 
 class GenericTFLoader():
     '''
@@ -47,15 +47,22 @@ class OU_MVLP_multi_view(GenericTFLoader):
             self._config['training_info']['tfrecord_path'])
         data_set = data_set.map(self.parse, num_parallel_calls=AUTOTUNE)
         # data_set = data_set.cache()
-        data_set = data_set.shuffle(
-            10000, reshuffle_each_iteration=self._config['training_info']['shuffle'])
-        data_batch = data_set.batch(
+        train_data = data_set.take(self._config['training_info']['train_size'])
+        vali_data = train_data.take(self._config['training_info']['validate_size'])
+        
+        train_data = train_data.shuffle(
+            100, reshuffle_each_iteration=self._config['training_info']['shuffle'])
+        train_data = train_data.batch(
             GLOBAL_BATCH_SIZE, drop_remainder=True)
-        data_batch = data_batch.prefetch(buffer_size=AUTOTUNE)
-        data_batch_ds = self.strategy.experimental_distribute_dataset(
-            data_batch)
 
-        return data_batch_ds
+        vali_data = vali_data.batch(
+            self._config['training_info']['vali_batch_size'], drop_remainder=True)
+
+        train_data = train_data.prefetch(buffer_size=AUTOTUNE)
+        train_data_ds = self.strategy.experimental_distribute_dataset(
+            train_data)
+
+        return train_data_ds, vali_data
 
     def parse(self, example_proto):
 
@@ -129,18 +136,28 @@ class OU_MVLP_GaitSet(GenericTFLoader):
         AUTOTUNE = tf.data.experimental.AUTOTUNE
         data_set = tf.data.TFRecordDataset(
             self._config['training_info']['tfrecord_path'])
-
         data_set = data_set.map(self.parse, num_parallel_calls=AUTOTUNE)
-        data_set = data_set.cache()
-        data_set = data_set.shuffle(
-            10000, reshuffle_each_iteration=self._config['training_info']['shuffle'])
-        data_batch = data_set.batch(
+        # data_set = data_set.cache()
+        train_data = data_set.take(self._config['training_info']['train_size'])
+        vali_data = train_data.take(self._config['training_info']['validate_size'])
+        
+        train_data = train_data.shuffle(
+            5000, reshuffle_each_iteration=self._config['training_info']['shuffle'])
+        train_data = train_data.batch(
             GLOBAL_BATCH_SIZE, drop_remainder=True)
-        data_batch = data_batch.prefetch(buffer_size=AUTOTUNE)
-        data_batch_ds = self.strategy.experimental_distribute_dataset(
-            data_batch)
 
-        return data_batch_ds
+        vali_data = vali_data.shuffle(
+            1000, reshuffle_each_iteration=self._config['training_info']['shuffle'])
+        vali_data = vali_data.batch(
+            self._config['training_info']['vali_batch_size'], drop_remainder=True)
+
+        train_data = train_data.prefetch(buffer_size=AUTOTUNE)
+        vali_data = vali_data.prefetch(buffer_size=AUTOTUNE)
+
+        train_data_ds = self.strategy.experimental_distribute_dataset(
+            train_data)
+
+        return train_data_ds, vali_data
 
     def parse(self, example_proto):
 
@@ -153,13 +170,14 @@ class OU_MVLP_GaitSet(GenericTFLoader):
 
         imgs = features['imgs']
         subject = features['subject']
-        angles = features['angles']
+   
 
         imgs = tf.io.decode_raw(imgs, tf.float32)
-        imgs = tf.reshape(imgs,  (self._config['resolution']['k'], self._config['resolution']
-                          ['height'], self._config['resolution']['width'], self._config['resolution']['channel']))
+        imgs = tf.reshape(imgs,  (self._config['resolution']['p'], self._config['resolution']['k'], self._config['resolution']['height'], 
+                                self._config['resolution']['width'], self._config['resolution']['channel']))
         imgs = imgs/255.
+
         subject = tf.io.decode_raw(subject, tf.float32)
-        subject = tf.reshape(subject, (self._config['resolution']['k'],))
+        subject = tf.reshape(subject, (self._config['resolution']['p'],))
 
         return [imgs, subject]

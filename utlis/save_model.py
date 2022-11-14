@@ -4,7 +4,7 @@ import datetime
 import os
 from shutil import copytree, copyfile
 from pathlib import Path
-from tensorflow.keras.utils import plot_model
+# from tensorflow.keras.utils import plot_model
 # Dont show warning about:
 # WARNING:absl:Found untraced functions such as conv1_1_layer_call_fn, conv1_1_layer_call_and_return_conditional_losses, _jit_compiled_convolution_op,
 # leakyReLU1_1_layer_call_fn, leakyReLU1_1_layer_call_and_return_conditional_losses
@@ -56,7 +56,7 @@ class Save_Model(tf.keras.callbacks.Callback):
            
             if not os.path.isdir(f"{log_path}/{startingDate}/{model_name}/"):
                 os.mkdir(f"{log_path}/{startingDate}/{model_name}/")
-                plot_model(model, to_file=f"{log_path}/{startingDate}/{model_name}/{model_name}.png", show_shapes=True)
+                # plot_model(model, to_file=f"{log_path}/{startingDate}/{model_name}/{model_name}.png", show_shapes=True)
 
         work_dir = os.path.abspath('')
         copytree(f'{work_dir}/model',

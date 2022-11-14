@@ -1,3 +1,5 @@
+import re
+from jsonschema import RefResolutionError
 import numpy as np
 import tensorflow as tf
 from model.gaitset import GaitSet
@@ -5,6 +7,10 @@ import utlis.loss_function as utlis_loss
 from utlis.create_training_data import create_training_data
 from utlis.save_model import Save_Model
 from utlis.config.data_info import OU_MVLP_GaitSet
+from einops import rearrange, reduce, repeat
+from tqdm import tqdm
+
+
 
 
 def main():
@@ -24,17 +30,17 @@ def main():
         return results
 
     def train_step(data, label):
- 
-        data = tf.reshape(
-            data, (data.shape[0]*data.shape[1], data.shape[2], data.shape[3], data.shape[4]))
 
-        label = tf.reshape(label, (label.shape[0]*label.shape[1], ))
+        data = rearrange(data, 'b p s h w c -> (b p) s h w c')
+        label = rearrange(label, 'b p -> (b p)')
+        # label = tf.reshape(label, (label.shape[0]*label.shape[1], ))
+        
         result = {}
 
         with tf.GradientTape() as tape:
-
+        
             embedding = gaitset(data, training=True)
-            embedding = tf.reshape(embedding, (embedding.shape[0], embedding.shape[1] * embedding.shape[2]))
+            embedding = rearrange(embedding, 'b h c -> b (h c)')
             triplet_loss = utlis_loss.GaitSet_loss(embedding, label)
 
         result.update({
@@ -60,13 +66,13 @@ def main():
         return imagesCombine
 
     data_loader = create_training_data('OU_MVLP_GaitSet')
-    training_batch = data_loader.read()
+    training_batch, vali_data_batch = data_loader.read()
 
     with data_loader.strategy.scope():
 
-        gaitset = GaitSet().model((
+        gaitset = GaitSet(256).model((
 
-            # OU_MVLP_GaitSet['resolution']['k'],
+            OU_MVLP_GaitSet['resolution']['k'],
             OU_MVLP_GaitSet['resolution']['height'],
             OU_MVLP_GaitSet['resolution']['width'],
             OU_MVLP_GaitSet['resolution']['channel']
@@ -80,7 +86,7 @@ def main():
     models = {
         'gaitset': gaitset,
     }
-    # gaitset.summary()
+    gaitset.summary()
 
     log_path = OU_MVLP_GaitSet['save_model']['logdir']
     save_model = Save_Model(models, info=OU_MVLP_GaitSet)
@@ -88,8 +94,8 @@ def main():
         f'{log_path}/{save_model.startingDate}')
 
     iteration = 0
-    while iteration < 100:
-        for step, batch in enumerate(training_batch):
+    while iteration < 20:
+        for step, batch in enumerate(tqdm(training_batch)):
 
             imgs, subjects = batch
 
@@ -101,14 +107,93 @@ def main():
                 for loss_name, loss in result.items():
 
                     tf.summary.scalar(loss_name, loss,
-                                      gaitset_optimizer.iterations)
+                                        gaitset_optimizer.iterations)
                     output_message += f'{loss_name}: {loss: .5f}, '
-
-        print(f'Epoch: {iteration:6} Step: {step} {output_message}')
+                
+            print(f'Epoch: {iteration:6} Step: {step} {output_message}')
 
         iteration += 1
         
-        # if iteration % 1 == 0:
+        if iteration % 1 == 0:
+
+            prob = []
+            gallery = []
+
+            prob_label_clt = []
+            gallery_label_clt = []
+            for step, batch in enumerate(tqdm(vali_data_batch)):
+                validate_imgs, validate_subjects = batch
+                
+                prob_imgs = validate_imgs[:, 0:2, :, :, :, :]
+                gallery_imgs = validate_imgs[:, 2:, :, :, :, :]
+
+                # validate_imgs = rearrange(validate_imgs, 'b p s h w c -> (b p) s h w c')
+                
+                prob_imgs = rearrange(prob_imgs, 'b p s h w c -> (b p) s h w c')
+                gallery_imgs = rearrange(gallery_imgs, 'b p s h w c -> (b p) s h w c')
+                
+                prob_feature= gaitset(prob_imgs)
+                gallery_feature= gaitset(gallery_imgs)
+
+
+                prob_feature = rearrange(prob_feature, 'b h c -> b (h c)')
+                gallery_feature = rearrange(gallery_feature, 'b h c -> b (h c)')
+           
+                
+                prob.append(prob_feature)
+                gallery.append(gallery_feature)
+
+                prob_label = validate_subjects[:, 0:2]
+                gallery_label = validate_subjects[:, 2:]
+                
+                prob_label = rearrange(prob_label, 'b p -> (b p)')
+                gallery_label = rearrange(gallery_label, 'b p -> (b p)')
+
+                prob_label_clt.append(prob_label)
+                gallery_label_clt.append(gallery_label)
+                
+            
+            prob = np.concatenate( prob, axis=0 )
+            gallery = np.concatenate( gallery, axis=0 )
+
+            prob_label_clt = np.concatenate( prob_label_clt, axis=0 )
+            gallery_label_clt = np.concatenate( gallery_label_clt, axis=0 )
+            
+            print(prob.shape)
+            print(gallery.shape)
+            print(prob_label_clt.shape)
+            print(gallery_label_clt.shape)
+            # RANK1
+            cos_correct_cnt = 0
+            mse_correct_cnt = 0
+
+            cosine = tf.keras.losses.CosineSimilarity(axis=1,
+                        reduction=tf.keras.losses.Reduction.NONE)
+            mse = tf.keras.losses.MeanSquaredError(
+                    reduction=tf.keras.losses.Reduction.NONE)
+
+            for i, p in enumerate(tqdm(prob)):
+                p = np.tile(p, prob.shape[0]).reshape(prob.shape[0], -1)
+                
+                #cosine
+                cosine_loss = cosine(gallery, p).numpy()
+                cosine_loss_predict_label = gallery_label_clt[np.argmin(cosine_loss)]
+
+                #Ecludiense
+                mse_loss = mse(gallery, p).numpy()
+                mse_predict_label = gallery_label_clt[np.argmin(mse_loss)]
+
+                if cosine_loss_predict_label == prob_label_clt[i]:
+                    cos_correct_cnt+=1
+                if mse_predict_label == prob_label_clt[i]:
+                    mse_correct_cnt+=1
+
+            print(f'Rank1: \n \
+            cos:{(cos_correct_cnt / prob.shape[0]) * 100}%, mse: {(mse_correct_cnt / prob.shape[0]) * 100}%')
+
+
+        #     for embedding in embedding_list:
+
         #     source_img = batch[0].values[0]
         #     target_img = batch[1].values[0]
         #     source_angle = batch[2].values[0]
